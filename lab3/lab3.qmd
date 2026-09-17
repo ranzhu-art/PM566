@@ -1,0 +1,177 @@
+---
+title: "lab3-Exploratory Data Analysis"
+author: "Ran Zhu"
+format: html
+editor: visual
+embed-resources: true
+fig-width: 6
+fig-height: 4
+theme: flatly
+---
+
+## 1. Read in the data
+
+```{r}
+met <- read.csv("/Users/mac/Desktop/PM566labs/met_all.gz")
+```
+
+## 2. **Check the dimensions, headers, footers**
+
+```{r}
+dim(met)
+head(met)
+tail(met)
+```
+
+The dataset has 2,377,343 rows and 30 columns.
+
+## 3. **Take a look at the variables**
+
+```{r}
+str(met)
+```
+
+## 4. **Take a closer look at the key variables**
+
+```{r}
+table(met$year)
+table(met$day)
+table(met$hour)
+summary(met$temp)
+summary(met$elev)
+summary(met$wind.sp)
+```
+
+```{r}
+met$elev[met$elev==9999.0] <- NA
+summary(met$elev)
+```
+
+The highest weather stations is at an elevation of 4113 meters.
+
+```{r}
+met <- met[met$temp > -40, ]
+met2 <- met[order(met$temp), ]
+head(met2)
+```
+
+```{r}
+head(met2[, c("year", "month", "day", "hour", "temp", "lat", "lon")])
+```
+
+The minimum temperature of -40°C seems suspicious, so I removed observations at or below -40°C and then examined the remaining minimum temperatures.
+
+## 5. **Check the data against an external data source**
+
+```{r}
+met <- met[met$temp > -15, ]
+met2 <- met[order(met$temp), ]
+head(met2)
+```
+
+```{r}
+head(met2[, c("year", "month", "day", "hour", "temp", "lat", "lon")])
+```
+
+After removing temperature readings colder than -15°C, the new minimum temperature in the dataset is -3.0°C, which is a reasonable value given the data was recorded in mountainous regions during August.
+
+## 6. **Calculate summary statistics**
+
+```{r}
+elev <- met[met$elev == max(met$elev, na.rm=TRUE), ]
+summary(elev)
+```
+
+```{r}
+cor(elev$temp, elev$wind.sp, use="complete")
+cor(elev$temp, elev$hour, use="complete")
+cor(elev$wind.sp, elev$day, use="complete")
+cor(elev$wind.sp, elev$hour, use="complete")
+cor(elev$temp, elev$day, use="complete")
+```
+
+To examine patterns at the highest-elevation weather station (4,113 m), I calculated correlations between temperature, wind speed, hour of day, and day of the month.
+
+Temperature and hour showed a moderate positive correlation (r = 0.44), suggesting that temperature tended to be higher at later hours of the day. However, correlation measures only the overall relationship and does not show how temperature rises and then falls within each day. The time-series plot in Step 7 shows this daily cycle more clearly.
+
+Wind speed and day showed a moderate positive correlation (r = 0.36), suggesting that wind speeds tended to be somewhat higher later in the month. In contrast, the correlations between temperature and wind speed, wind speed and hour, and temperature and day were close to zero, indicating weak linear associations for those pairs.
+
+Overall, the results suggest that temperature has a strong time-of-day pattern, while wind speed appears to vary more irregularly over several days.
+
+## 7. **Exploratory graphs**
+
+```{r}
+hist(met$elev, breaks=100)
+hist(met$temp)
+hist(met$wind.sp)
+```
+
+Looking at the histogram of `temp`, the shape is nearly symmetric. It rises smoothly from around 5°C, peaks around 22-24°C, and then falls off smoothly on the other side. Earlier in the analysis, I removed observations below -40°C and then below -15°C because one station even had the exact same -17.2°C value repeated multiple times, which didn't make sense for August. After removing these unusually low values, the temperature distribution looks reasonable, with no obvious extreme values remaining on the low end. This suggests that the data cleaning was the right call and didn't accidentally cut out real data.
+
+The `wind.sp` and `elev` distributions are strongly right-skewed, with most observations concentrated at lower values and a smaller number of much larger values. A log transformation could be useful in later analyses to reduce this skewness.
+
+# Add: making one graph for every variable
+
+```{r}
+barplot(table(met$day),
+        main = "Observations by Day",
+        xlab = "Day")
+
+barplot(table(met$hour),
+        main = "Observations by Hour",
+        xlab = "Hour")
+
+hist(met$lat,
+     main = "Distribution of Latitude",
+     xlab = "Latitude")
+
+hist(met$lon,
+     main = "Distribution of Longitude",
+     xlab = "Longitude")
+```
+
+```{r}
+library(leaflet)
+leaflet(elev) %>%
+  addProviderTiles('OpenStreetMap') %>% 
+  addCircles(lat=~lat, lng=~lon, opacity=1, fillOpacity=1, radius=100)
+```
+
+The highest-elevation weather station (4,113 m) is located in the Colorado Rockies Mountains, near Mount Flora Trail. This is consistent with the region being one of the highest-elevation areas in the continental US.
+
+```{r}
+library(lubridate)
+```
+
+```{r}
+elev$date <- with(elev, ymd_h(paste(year, month, day, hour, sep=' ')))
+summary(elev$date)
+elev <- elev[order(elev$date), ]
+head(elev)
+```
+
+```{r}
+plot(elev$date, elev$temp, type='l')
+plot(elev$date, elev$wind.sp, type='l')
+```
+
+Plotting `elev$temp` against `elev$date` shows a repeating daily pattern. Temperature is generally lower overnight and in the early morning, rises during the day, and then decreases again at night. This pattern repeats throughout August. There is no obvious overall increase or decrease in temperature over the month.
+
+Plotting `elev$wind.sp` against `elev$date` shows a noisier and more irregular pattern, but there are some longer stretches (lasting several days) where wind speeds are higher, such as mid-August (around Aug 15-17) and again near the end of the month (Aug 24-31), separated by calmer periods in between. Unlike temperature, wind speed does not show a clear repeating daily pattern.
+
+# 8. **Ask questions：**Does wind speed tend to increase with elevation?
+
+```{r}
+plot(met$elev, met$wind.sp,
+     xlab = "Elevation (m)",
+     ylab = "Wind Speed",
+     main = "Wind Speed vs. Elevation")
+```
+
+To calculate the correlation:
+
+```{r}
+cor(met$elev, met$wind.sp, use = "complete.obs")
+```
+
+**Conclusion**: The scatterplot does not show a strong relationship between elevation and wind speed. The correlation is about 0.177, which shows a weak positive relationship. This means that wind speed tends to be slightly higher at higher elevations, but the relationship is not very strong.
