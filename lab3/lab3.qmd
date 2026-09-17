@@ -175,3 +175,5 @@ cor(met$elev, met$wind.sp, use = "complete.obs")
 ```
 
 **Conclusion**: The scatterplot does not show a strong relationship between elevation and wind speed. The correlation is about 0.177, which shows a weak positive relationship. This means that wind speed tends to be slightly higher at higher elevations, but the relationship is not very strong.
+
+<!-- Final Lab 3 submission -->
