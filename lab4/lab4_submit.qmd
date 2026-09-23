@@ -1,0 +1,334 @@
+---
+title: "lab4-Data Visualization"
+author: "Ran Zhu"
+format: html
+editor: visual
+embed-resources: true
+fig-width: 6
+fig-height: 4
+theme: flatly
+---
+
+## 0. Prepare package
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(leaflet)
+library(RColorBrewer)
+library(ggforce)
+```
+
+## 1. Read in the data
+
+```{r}
+if (!file.exists("met_all.gz"))
+  download.file(
+    url = "https://raw.githubusercontent.com/USCbiostats/data-science-data/master/02_met/met_all.gz",
+    destfile = "met_all.gz",
+    method   = "libcurl",
+    timeout  = 60
+  )
+
+met <- read.csv("met_all.gz")
+
+head(met)
+dim(met)
+names(met)
+```
+
+## 2. Prepare the data
+
+### 2.1 Remove temperature less than -17°C
+
+```{r}
+met <- met %>%
+  filter(temp >= -17)
+```
+
+```{r}
+dim(met)
+summary(met$temp)
+```
+
+### 2.2 Replace coded missing values with NA
+
+```{r}
+met$elev[met$elev == 9999.0] <- NA
+```
+
+```{r}
+met$rh[met$rh == 999] <- NA
+met$rh[met$rh == 9999] <- NA
+
+met$wind.sp[met$wind.sp == 999] <- NA
+met$wind.sp[met$wind.sp == 9999] <- NA
+met$wind.sp[met$wind.sp == 999.9] <- NA
+
+met$vis.dist[met$vis.dist == 999] <- NA
+met$vis.dist[met$vis.dist == 9999] <- NA
+
+met$dew.point[met$dew.point == 999] <- NA
+met$dew.point[met$dew.point == 9999] <- NA
+```
+
+### 2.3 Generate a date variable
+
+```{r}
+met$date <- as.Date(
+  paste(met$year, met$month, met$day, sep = "-")
+)
+```
+
+### 2.4 Keep only the first 7 days of each month
+
+```{r}
+met <- met[met$day <= 7, ]
+```
+
+### 2.5 Compute the mean by station
+
+```{r}
+met_avg <- summarize(
+  met,
+  temp = mean(temp, na.rm = TRUE),
+  rh = mean(rh, na.rm = TRUE),
+  wind.sp = mean(wind.sp, na.rm = TRUE),
+  vis.dist = mean(vis.dist, na.rm = TRUE),
+  dew.point = mean(dew.point, na.rm = TRUE),
+  lat = mean(lat, na.rm = TRUE),
+  lon = mean(lon, na.rm = TRUE),
+  elev = mean(elev, na.rm = TRUE),
+  .by = USAFID
+)
+```
+
+### 2.6 Create a four-region variable
+
+```{r}
+met_avg$region <- ifelse(
+  met_avg$lon > -98 & met_avg$lat >= 39.71, "NE",
+  ifelse(
+    met_avg$lon > -98 & met_avg$lat < 39.71, "SE",
+    ifelse(
+      met_avg$lon <= -98 & met_avg$lat >= 39.71, "NW",
+      "SW"
+    )
+  )
+)
+```
+
+### 2.7 Create an elevation category
+
+```{r}
+met_avg$elev_cat <- ifelse(
+  met_avg$elev > 252,
+  "high",
+  "low"
+)
+```
+
+## 3. Relative Humidity
+
+```{r}
+ggplot(
+  met_avg %>% filter(!is.na(rh)),
+  aes(x = 1, y = rh)
+) +
+  geom_violin() +
+  facet_wrap(~ region) +
+  labs(
+    x = "",
+    y = "Relative Humidity (%)",
+    title = "Relative Humidity by Region"
+  )
+```
+
+For relative humidity plots, the NE and SE have higher relative humidity, with most values concentrated around 70–80%. The SW has lower relative humidity, while the NW shows a wider range of relative humidity values.
+
+```{r}
+ggplot(
+  met_avg %>% filter(!is.na(dew.point)),
+  aes(x = 1, y = dew.point)
+) +
+  geom_violin() +
+  facet_wrap(~ region) +
+  labs(
+    x = "",
+    y = "Dew Point (°C)",
+    title = "Dew Point by Region"
+  )
+```
+
+For Dew Point plots, the SE has the highest dew point, with most values concentrated around 20°C. The NE also has relatively high dew point values. In comparison, the NW has lower dew point values and greater variability. The SW also shows a wider range of dew point values than the NE and SE.
+
+## 4. Dew Point and Relative Humidity by Region
+
+```{r}
+met_avg[!is.na(met_avg$dew.point) &
+          !is.na(met_avg$rh) &
+          !is.na(met_avg$region), ] %>%
+  ggplot() +
+  geom_point(
+    mapping = aes(
+      x = dew.point,
+      y = rh,
+      color = region
+    )
+  ) +
+  stat_smooth(
+    mapping = aes(
+      x = dew.point,
+      y = rh,
+      color = region
+    ),
+    method = "lm",
+    se = FALSE
+  ) +
+  labs(
+    x = "Dew Point (°C)",
+    y = "Relative Humidity (%)",
+    color = "Region",
+    title = "Dew Point and Relative Humidity by Region"
+  )
+```
+
+There is a positive association between dew point and relative humidity in all four regions. As dew point increases, relative humidity generally increases. However, the slopes of the regression lines differ across regions. The NW (green) has the steepest positive slope, indicating that relative humidity increases more rapidly as dew point increases. The SW (purple) also shows a clear positive slope, but the data points are more variable around the regression line. The SE (blue) has a moderate positive slope, while the NE (red) has the flattest slope, indicating a smaller change in relative humidity as dew point increases.
+
+## 5. **Barplots of the weather stations**
+
+```{r}
+met_avg[!is.na(met_avg$elev_cat) &
+          !is.na(met_avg$region), ] %>%
+  ggplot() +
+  geom_bar(
+    mapping = aes(
+      x = elev_cat,
+      fill = region
+    ),
+    position = "dodge"
+  ) +
+  scale_fill_brewer(palette = "Set2") +
+  labs(
+    x = "Elevation Category",
+    y = "Number of Weather Stations",
+    fill = "Region",
+    title = "Weather Stations by Elevation Category and Region"
+  )
+```
+
+There are clear differences in elevation category across the four regions. Most weather stations in the SE are in the low-elevation category, while most stations in the NW are in the high elevation category. The SW also has more high elevation stations than low elevation stations. The NE is more evenly distributed between the two elevation categories.
+
+## 6. Mean Dew Point by Region
+
+```{r}
+library(Hmisc)
+```
+
+```{r}
+met_avg[!is.na(met_avg$dew.point) &
+          !is.na(met_avg$region), ] %>%
+  ggplot() +
+  stat_summary(
+    mapping = aes(
+      x = region,
+      y = dew.point
+    ),
+    fun.data = "mean_sdl"
+  ) +
+  stat_summary(
+    mapping = aes(
+      x = region,
+      y = dew.point
+    ),
+    fun.data = "mean_sdl",
+    geom = "errorbar",
+    width = 0.2
+  ) +
+  labs(
+    x = "Region",
+    y = "Mean Dew Point (°C)",
+    title = "Mean Dew Point by Region"
+  )
+```
+
+The SE has the highest mean dew point at about 21°C, while the NW has the lowest mean at about 12°C. The NE has a mean of about 17°C, and the SW is around 13°C. The error bars are larger for the NW and SW, showing more variation in dew point across weather stations in these regions. The NE and SE have smaller standard deviations.
+
+## 7. **Spatial** Map 
+
+```{r}
+us_map <- map_data("state")
+
+met_map <- met_avg[
+  !is.na(met_avg$rh) &
+    !is.na(met_avg$lat) &
+    !is.na(met_avg$lon), ]
+```
+
+```{r}
+top10_rh <- met_map[rank(-met_map$rh) <= 10, ]
+```
+
+```{r}
+ggplot() +
+  geom_polygon(
+    data = us_map,
+    mapping = aes(
+      x = long,
+      y = lat,
+      group = group
+    ),
+    fill = "white",
+    color = "gray"
+  ) +
+  geom_point(
+    data = met_map,
+    mapping = aes(
+      x = lon,
+      y = lat,
+      color = rh
+    )
+  ) +
+  geom_point(
+    data = top10_rh,
+    mapping = aes(
+      x = lon,
+      y = lat
+    ),
+    color = "black",
+    size = 3
+  ) +
+  scale_color_gradient(
+    low = "blue",
+    high = "red"
+  ) +
+  labs(
+    x = "Longitude",
+    y = "Latitude",
+    color = "Relative Humidity (%)",
+    title = "Relative Humidity Across the US"
+  )
+```
+
+Relative humidity shows a clear spatial pattern across the US. The western US, especially the Southwest, generally has lower relative humidity, as shown by more blue and purple points. In comparison, the central and eastern US have more red points, indicating higher relative humidity. The top 10 stations with the highest relative humidity, shown in black, are located in several different parts of the country.
+
+## 8. **Use a ggplot extension**
+
+```{r}
+met_avg[!is.na(met_avg$wind.sp) &
+          !is.na(met_avg$elev_cat), ] %>%
+  ggplot() +
+  ggforce::geom_sina(
+    mapping = aes(
+      x = elev_cat,
+      y = wind.sp
+    )
+  ) +
+  labs(
+    x = "Elevation Category",
+    y = "Wind Speed",
+    title = "Wind Speed by Elevation Category"
+  )
+```
+
+I used the ggforce extension with geom_sina() to visualize wind speed by elevation category.
