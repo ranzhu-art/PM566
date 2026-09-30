@@ -1,5 +1,5 @@
 ---
-title: "lab5"
+title: "lab5-Data Wrangling"
 author: "Ran Zhu"
 format: html
 editor: visual
@@ -35,7 +35,9 @@ stations <- read.csv(
 )
 
 # Convert USAF station ID to integer
-stations$USAF <- as.integer(stations$USAF)
+stations$USAF <- suppressWarnings(
+  as.integer(stations$USAF)
+)
 
 # Deal with blanks and invalid station IDs
 stations$USAF[stations$USAF == 999999] <- NA
@@ -54,7 +56,7 @@ stations <- stations[!is.na(stations$USAF), ]
 stations <- stations[!duplicated(stations$USAF), ]
 ```
 
-## 0.3. Merge the meteorological data with the station data 
+## 0.3. Merge the meteorological data with the station data
 
 ```{r}
 met <- merge(
@@ -165,11 +167,7 @@ representative_stations
 n_distinct(representative_stations$USAFID)
 ```
 
-I I first calculated the mean temperature, wind speed, and atmospheric pressure for each weather station in the continental United States. I then used `quantile()` to calculate the median of the station-level averages and identified the station whose average value was closest to each median.
-
-The median station for temperature is USAFID 720458 in KY. Its mean temperature is 23.681730°C, which is approximately 0.002329°C from the median temperature of 23.684059°C. The median station for wind speed is USAFID 720929 in WI. Its mean wind speed is same as the median wind speed of 2.461838 m/s. The median station for atmospheric pressure is USAFID 722238 in AL. Its mean atmospheric pressure is 1014.690611 hPa, approximately 0.000537 hPa from the median of 1014.691148 hPa.
-
-These three representative stations do not coincide because they have different USAFIDs.
+The median station for temperature is USAFID 720458 in KY. Its mean temperature is 23.681730°C, which is only 0.002329°C away from the median temperature of 23.684059°C. For wind speed, the median station is USAFID 720929 in WI. Its mean wind speed is the same as the median wind speed, 2.461838 m/s. For atmospheric pressure, the median station is USAFID 722238 in AL. Its mean atmospheric pressure is 1014.690611 hPa, which is about 0.000537 hPa away from the median of 1014.691148 hPa. These are three different stations, so they do not coincide. These three representative stations do not coincide because they have different USAFIDs.
 
 ## Q2. Representative station per state
 
@@ -316,7 +314,7 @@ leaflet(map_points) |>
 
 The map contains 96 points, with two points for each of the 48 states. The blue points represent the median latitude and longitude calculated in Question 2, while the red points represent the actual stations closest to the mean latitude and longitude. Some red and blue points are very close, while others are farther apart because the mean and median coordinates are not always the same.
 
-## Q4. Means of means 
+## Q4. Means of means
 
 ```{r}
 # Calculate the average temperature for each state
