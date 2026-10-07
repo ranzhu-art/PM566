@@ -1,0 +1,196 @@
+---
+title: "lab6"
+author: "Ran Zhu"
+format: html
+editor: visual
+embed-resources: true
+fig-width: 6
+fig-height: 4
+theme: flatly
+---
+
+## Setup
+
+```{r}
+knitr::opts_chunk$set(
+  eval = TRUE,
+  include = TRUE,
+  warning = FALSE,
+  message = FALSE
+)
+
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(tidytext)
+library(forcats)
+library(tidyr)
+```
+
+```{r}
+mt_samples <- read_csv(
+  "https://raw.githubusercontent.com/USCbiostats/data-science-data/master/00_mtsamples/mtsamples.csv"
+)
+
+mt_samples <- mt_samples |>
+  select(description, medical_specialty, transcription)
+
+head(mt_samples)
+```
+
+## Q1: How many different categories? Are these categories related or overlapping? Are they evenly distributed?
+
+```{r}
+mt_samples %>%
+  count(medical_specialty, sort = TRUE)
+```
+
+There are 40 different categories in the dataset. The blue plot shows that the categories are not evenly distributed, with counts ranging from 6 to 1,103. Based on their names, some categories appear related, such as Surgery, Orthopedic, and Neurosurgery. However, we cannot tell from this result alone whether the categories actually overlap.
+
+## Q2: Most Frequent Words in Medical Transcriptions
+
+```{r}
+mt_samples |>
+  unnest_tokens(word, transcription) |>
+  count(word) |>
+  top_n(20, n) |>
+  ggplot(aes(n, fct_reorder(word, n))) +
+  geom_col() +
+  labs(
+    title = "Top 20 Most Frequent Words in Medical Transcriptions",
+    x = "Count",
+    y = "Word"
+  )
+```
+
+The most frequent word is “the,” which appears about 150,000 times, followed by words such as “and,” “was,” “of,” and “to.” This makes sense because these are commonly used English words, but they do not tell us much about the medical content. “Patient” and “right” are among the few words that provide more useful information. Overall, the main insight is that the word counts are dominated by common stop words, making it difficult to identify what the reports are mainly about. Removing these stop words may reveal more meaningful medical terms.
+
+## Q3: Most Frequent Words After Removing Stop Words
+
+```{r}
+mt_samples |>
+  unnest_tokens(word, transcription) |>
+  anti_join(stop_words, by = c("word")) |>
+  filter(!grepl("^[0-9]+$", word)) |>
+  count(word) |>
+  top_n(20, n) |>
+  ggplot(aes(n, fct_reorder(word, n))) +
+  geom_col() +
+  labs(
+    x = "Count",
+    y = "Word"
+  )
+```
+
+After removing stop words and numbers, the most frequent word is “patient,” followed by “left,” “history,” “normal,” and “procedure.” The remaining words are more related to medical reports, including symptoms such as “pain,” anatomical terms such as “artery” and “skin,” and procedure-related words such as “anesthesia,” “incision,” and “performed.” This gives us a better idea of the text because it shows that the reports mainly describe patients, medical histories, diagnoses, and procedures.
+
+## Q4: Most Frequent Bi-grams and Tri-grams
+
+### Bi-grams
+
+```{r}
+mt_samples |>
+  unnest_ngrams(ngram, transcription, n = 2) |>
+  count(ngram) |>
+  top_n(20, n) |>
+  ggplot(aes(n, fct_reorder(ngram, n))) +
+  geom_col() +
+  labs(
+    x = "Count",
+    y = "Bi-gram"
+  )
+```
+
+### Tri-grams
+
+```{r}
+mt_samples |>
+  unnest_ngrams(ngram, transcription, n = 3) |>
+  count(ngram) |>
+  top_n(20, n) |>
+  ggplot(aes(n, fct_reorder(ngram, n))) +
+  geom_col() +
+  labs(
+    x = "Count",
+    y = "Tri-gram"
+  )
+```
+
+For the bigrams, “the patient” appears most often, followed by phrases like “of the,” “in the,” and “to the.” The trigrams are longer and show more complete ideas, such as “the patient was,” “the operating room,” “prepped and draped,” “tolerated the procedure,” and “past medical history.” The trigram counts are lower than the bigram counts because the same three-word sequence is less likely to be repeated than a two-word sequence. Overall, the trigrams are more helpful for understanding the common language used to describe patient histories and medical procedures.
+
+## Q5: Words Before and After "Patient" (chose from Q4)
+
+### before "patient"
+
+```{r}
+mt_samples |>
+  unnest_ngrams(ngram, transcription, n = 2) |>
+  separate(ngram, into = c("word1", "word2"), sep = " ") |>
+  select(word1, word2) |>
+  filter(word2 == "patient") |>
+  count(word1, sort = TRUE)
+```
+
+### After "patient"
+
+```{r}
+mt_samples |>
+  unnest_ngrams(ngram, transcription, n = 2) |>
+  separate(ngram, into = c("word1", "word2"), sep = " ") |>
+  select(word1, word2) |>
+  filter(word1 == "patient") |>
+  count(word2, sort = TRUE)
+```
+
+The most common word before “patient” is “the,” forming the phrase “the patient” 20,307 times. “This” and “history” also appear before “patient,” but much less often. For words after “patient,” the most common are “was” (6,293), “is” (3,332), and “has” (1,417). This makes sense because phrases such as “the patient was,” “the patient is,” and “the patient has” are commonly used in medical reports.
+
+## Q6: Most-Used Words by Medical Specialty
+
+```{r}
+mt_samples |>
+  unnest_tokens(word, transcription) |>
+  anti_join(stop_words, by = c("word")) |>
+  filter(!grepl("^[0-9]+$", word)) |>
+  group_by(medical_specialty) |>
+  count(word) |>
+  top_n(5, n) |>
+  arrange(medical_specialty, desc(n))
+```
+
+For Allergy / Immunology, the most-used word is “history,” which appears 38 times, followed by “noted” 23 times, “patient” 22 times, and “allergies” 21 times. Both “nasal” and “past” appear 13 times, so they are tied for fifth place.
+
+## Q7: extra
+
+### See if certain words are used more in some specialties than others.
+
+### - Use of "Pain" across medical specialties
+
+```{r}
+pain_by_specialty <- mt_samples |>
+  unnest_tokens(word, transcription) |>
+  group_by(medical_specialty) |>
+  summarize(
+    total_words = n(),
+    pain_count = sum(word == "pain"),
+    pain_per_1000 = pain_count / total_words * 1000
+  ) |>
+  arrange(desc(pain_per_1000))
+
+pain_by_specialty
+```
+
+```{r}
+pain_by_specialty |>
+  top_n(10, pain_per_1000) |>
+  ggplot(aes(
+    pain_per_1000,
+    fct_reorder(medical_specialty, pain_per_1000)
+  )) +
+  geom_col() +
+  labs(
+    x = "Uses of 'pain' per 1,000 words",
+    y = "Medical Specialty"
+  )
+```
+
+The word “pain” is used most frequently in Chiropractic,with about 14 times per 1,000 words. Physical Medicine - Rehab comes next at 9, followed by IME-QME-Work Comp. General Medicine uses the word “pain” 567 times, which is the highest total count in the graph. However, it only appears about 4.5 times per 1,000 words because General Medicine has much more text overall. This is why comparing the rate is more useful than comparing only the total count.
