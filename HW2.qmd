@@ -1,0 +1,963 @@
+---
+title: "Assignment 2"
+author: "RanZhu"
+format: html
+editor: visual
+embed-resources: true
+fig-width: 6
+fig-height: 4
+theme: flatly
+---
+
+## 0. Setup loading packages
+
+```{r}
+library(nycflights13)
+library(dplyr)
+library(ggplot2)
+```
+
+## Q1. Find the 10 Most Popular Destinations
+
+```{r}
+top_destinations <- flights |>
+  group_by(dest) |>
+  summarise(
+    n_flights = n()
+  ) |>
+  arrange(desc(n_flights)) |>
+  head(n = 10)
+
+top_destinations
+```
+
+After grouping the data by `dest` and sorting the flight counts from highest to lowest, the top 10 most popular destinations were ORD, with 17,283 flights; ATL, with 17,215 flights; LAX, with 16,174 flights; BOS, with 15,508 flights; MCO, with 14,082 flights; CLT, with 14,064 flights; SFO, with 13,331 flights; FLL, with 12,055 flights; MIA, with 11,728 flights; and DCA, with 9,705 flights.
+
+## Q2. Create New Categorical Variables and Barplots
+
+### 1. create two categorical variables
+
+```{r}
+flights <- flights |>
+  mutate(
+    dep_period = ifelse(
+      is.na(dep_time), NA,
+      ifelse(
+        dep_time < 600 | dep_time == 2400, "early morning",
+        ifelse(
+          dep_time < 1200, "morning",
+          ifelse(dep_time < 1800, "afternoon", "evening")
+        )
+      )
+    ),
+    arr_period = ifelse(
+      is.na(arr_time), NA,
+      ifelse(
+        arr_time < 600 | arr_time == 2400, "early morning",
+        ifelse(
+          arr_time < 1200, "morning",
+          ifelse(arr_time < 1800, "afternoon", "evening")
+        )
+      )
+    )
+  )
+```
+
+```{r}
+flights <- flights |>
+  mutate(
+    dep_period = factor(
+      dep_period,
+      levels = c("early morning", "morning", "afternoon", "evening")
+    ),
+    arr_period = factor(
+      arr_period,
+      levels = c("early morning", "morning", "afternoon", "evening")
+    )
+  )
+```
+
+### 2. Departure time barplot
+
+```{r}
+flights |>
+  filter(!is.na(dep_period)) |>
+  ggplot(mapping = aes(x = dep_period)) +
+  geom_bar() +
+  labs(
+    title = "Flights by Departure Time Period",
+    x = "Departure Time Period",
+    y = "Number of Flights"
+  )
+```
+
+### 3. Arrival time barplot
+
+```{r}
+flights |>
+  filter(!is.na(arr_period)) |>
+  ggplot(mapping = aes(x = arr_period)) +
+  geom_bar() +
+  labs(
+    title = "Flights by Arrival Time Period",
+    x = "Arrival Time Period",
+    y = "Number of Flights"
+  )
+```
+
+### 4. Calculate red-eye flights percentage
+
+```{r}
+flights_with_times <- flights |>
+  filter(!is.na(dep_period) & !is.na(arr_period))
+```
+
+```{r}
+red_eye_flights <- flights_with_times |>
+  filter(
+    (dep_period == "afternoon" | dep_period == "evening") &
+      (arr_period == "early morning" | arr_period == "morning")
+  )
+```
+
+```{r}
+red_eye_percentage <- nrow(red_eye_flights) /
+  nrow(flights_with_times) * 100
+
+red_eye_percentage
+```
+
+I divided the departure and arrival times into four categories using the time intervals specified in the question. The four categories were “early morning”, “morning”, “afternoon”, and “evening”. Flights with missing departure or arrival times were left as missing because their actual time periods could not be determined. In the departure-time barplot, morning had the tallest bar, followed closely by afternoon. Evening had fewer departures, and early morning had the shortest bar. This shows that departures were concentrated in the morning and afternoon, while relatively few flights departed in the early morning.
+
+In the arrival-time barplot, evening had the tallest bar, followed by afternoon and morning. Early morning again had the shortest bar. Therefore, arrivals were most commonly recorded in the evening and least commonly recorded in the early morning. Overall, early morning was the least common time period in both plots.
+
+I classified a flight as a red-eye flight if it departed in the afternoon or evening and arrived in the early morning or morning. Among flights with non-missing departure and arrival times, approximately 3.28% were classified as red-eye flights.
+
+## Q3. Planes That Flew for Multiple Airlines
+
+### 1. keep only unique plane-airline combinations
+
+```{r}
+plane_airlines <- unique(
+  flights[, c("tailnum", "carrier")]
+)
+
+plane_airlines <- plane_airlines[
+  !is.na(plane_airlines$tailnum),
+]
+```
+
+### 2. Identify planes that flew for multiple Airlines
+
+```{r}
+multi_airline_planes <- plane_airlines |>
+  group_by(tailnum) |>
+  summarise(
+    n_airlines = n()
+  ) |>
+  filter(n_airlines > 1) |>
+  arrange(tailnum)
+
+multi_airline_planes
+```
+
+### 3. calculate the number of planes
+
+```{r}
+nrow(multi_airline_planes)
+```
+
+### 4. Identify the Airlines for each plane
+
+```{r}
+multi_airline_details <- merge(
+  x = multi_airline_planes,
+  y = plane_airlines,
+  by = "tailnum",
+  all.x = TRUE,
+  all.y = FALSE
+)
+```
+
+```{r}
+multi_airline_details <- merge(
+  x = multi_airline_details,
+  y = airlines,
+  by = "carrier",
+  all.x = TRUE,
+  all.y = FALSE
+)
+
+multi_airline_details <- multi_airline_details |>
+  arrange(tailnum, carrier)
+
+multi_airline_details
+```
+
+```{r}
+unique(
+  multi_airline_details[, c("carrier", "name")]
+)
+```
+
+In step 1, I removed missing tail numbers and kept only the unique `tailnum` and `carrier` combinations so that the same plane-airline combination was counted only once. In step 2, I grouped the data by `tailnum` and retained planes that appeared under more than one carrier. The resulting table showed an `n_airlines` value of 2 for every selected plane.
+
+In step 3, I counted the rows in this table and found 17 planes. Therefore, 17 planes flew for multiple airlines, and each of them flew for exactly two airlines. In step 4, I merged the results with the `airlines` data to obtain the full airline names. Eight planes had flight records under both Endeavor Air Inc. (9E) and ExpressJet Airlines Inc. (EV). These planes were N146PQ, N153PQ, N176PQ, N181PQ, N197PQ, N200PQ, N228PQ, and N232PQ. The other nine planes had flight records under both Delta Air Lines Inc. (DL) and AirTran Airways Corporation (FL). These planes were N933AT, N935AT, N977AT, N978AT, N979AT, N981AT, N989AT, N990AT, and N994AT.
+
+## Q4. What is the missing relationship? How should it appear in the diagram?
+
+The missing relationship is between `origin` in the `weather` data and `faa` in the `airports` data. The `airports` data contains one row for each airport, and `faa` is the airport code used to identify that airport. The `weather` data contains multiple hourly weather observations for each airport, and `origin` records the airport where each observation was made. For example, the `weather` data can contain many rows with `origin = "LGA"` because the weather was measured at LGA during many different hours. All of these rows correspond to the single airport record with `faa = "LGA"` in the `airports` data. Therefore, this is a many-to-one relationship because many weather observations correspond to one airport. In the diagram, an arrow should connect `origin` in `weather` to `faa` in `airports`.
+
+## Q5. Prepare the Merged Flights and Weather Data
+
+### 1. Create a combined weather variable
+
+```{r}
+weather <- weather |>
+  mutate(
+    weather_id = paste(
+      year,
+      month,
+      day,
+      hour,
+      origin,
+      sep = "_"
+    )
+  )
+```
+
+### 2. Count the duplicated values
+
+```{r}
+sum(duplicated(weather$weather_id))
+```
+
+### 3. Identify the duplicated records
+
+```{r}
+duplicate_weather <- weather |>
+  group_by(weather_id) |>
+  filter(n() > 1) |>
+  select(
+    weather_id,
+    year,
+    month,
+    day,
+    hour,
+    origin,
+    time_hour
+  ) |>
+  arrange(origin, time_hour)
+
+duplicate_weather
+```
+
+```{r}
+sum(
+  duplicated(
+    weather[, c("origin", "time_hour")]
+  )
+)
+```
+
+### 4. Merge the Flights and Weather Data
+
+```{r}
+weather_for_merge <- weather |>
+  select(
+    origin,
+    time_hour,
+    temp,
+    dewp,
+    humid,
+    wind_dir,
+    wind_speed,
+    wind_gust,
+    precip,
+    pressure,
+    visib
+  )
+```
+
+```{r}
+flights_weather <- merge(
+  x = flights,
+  y = weather_for_merge,
+  by = c("origin", "time_hour"),
+  all.x = TRUE,
+  all.y = FALSE
+)
+```
+
+```{r}
+nrow(flights)
+nrow(flights_weather)
+```
+
+```{r}
+flights_weather |>
+  select(
+    origin,
+    time_hour,
+    carrier,
+    flight,
+    sched_dep_time,
+    temp,
+    dewp,
+    humid,
+    wind_speed,
+    precip,
+    visib
+  ) |>
+  head()
+```
+
+I created `weather_id` by combining `year`, `month`, `day`, `hour`, and `origin`. The result showed three duplicated values. The duplicate table contained six rows because each duplicated value appeared twice. These duplicated records occurred at 1:00 a.m. on November 3, 2013, at EWR, JFK, and LGA. This occurred because daylight saving time ended on that date, causing the hour from 1:00 a.m. to 2:00 a.m. to occur twice. The two occurrences had the same year, month, day, hour, and origin, so `weather_id` could not distinguish between them. However, when I checked the combination of `origin` and `time_hour`, the number of duplicates was zero. This shows that `time_hour` distinguishes the two occurrences of 1:00 a.m. and that `origin` and `time_hour` together uniquely identify the weather observations.
+
+I then merged the `flights` and `weather` data using `origin` and `time_hour`. The `origin` variable matched each flight with weather information from its departure airport, while `time_hour` matched the weather to the hour of its scheduled departure. I used `all.x = TRUE` to retain all flights in the merged dataset. Both the original `flights` data and the merged `flights_weather` data contained 336,776 rows, showing that all flight records were retained. The resulting dataset contains each flight together with the weather measurements recorded at its departure airport during its scheduled departure hour.
+
+## Q6. Perform steps 2-5 of the EDA checklist
+
+### 2. Check the size of the data
+
+```{r}
+dim(flights_weather)
+nrow(flights_weather)
+ncol(flights_weather)
+```
+
+The merged dataset contained 336,776 observations and 30 variables. Each observation represents one flight and includes its flight information and the weather measurements at its departure airport during its scheduled departure hour.
+
+### 3. Examine the variables and their types
+
+```{r}
+str(flights_weather)
+```
+
+The `str()` output showed that `origin`, `carrier`, `tailnum`, and `dest` were character variables, while `time_hour` was a date-time variable. The `dep_period` and `arr_period` variables were factors with four levels, and the delay and weather measurements were numeric variables.
+
+### 4. Look at the top and bottom of the data
+
+```{r}
+head(flights_weather)
+```
+
+```{r}
+tail(flights_weather)
+```
+
+The first six rows showed flights from EWR on January 1, 2013, and the last six rows showed flights from LGA on December 31, 2013. I also noticed that one of the last six flights had a missing value for `dep_time`.
+
+### 5. Visualize the distributions of key variables
+
+```{r}
+summary(
+  flights_weather[, c(
+    "dep_delay",
+    "arr_delay",
+    "temp",
+    "dewp",
+    "humid",
+    "wind_dir",
+    "wind_speed",
+    "wind_gust",
+    "precip",
+    "pressure",
+    "visib"
+  )]
+)
+```
+
+#### Delay Variables
+
+```{r}
+sum(is.na(flights_weather$dep_delay))
+
+mean(is.na(flights_weather$dep_delay)) * 100
+```
+
+```{r}
+ggplot(flights_weather, aes(x = dep_delay)) +
+  geom_histogram(
+    bins = 30,
+    color = "black",
+    fill = "steelblue",
+    na.rm = TRUE
+  ) +
+  labs(
+    title = "Distribution of Departure Delay",
+    x = "Departure Delay (minutes)",
+    y = "Number of Flights"
+  )
+```
+
+```{r}
+ggplot(flights_weather, aes(x = arr_delay)) +
+  geom_histogram(
+    bins = 30,
+    color = "black",
+    fill = "steelblue",
+    na.rm = TRUE
+  ) +
+  labs(
+    title = "Distribution of Arrival Delay",
+    x = "Arrival Delay (minutes)",
+    y = "Number of Flights"
+  )
+```
+
+The histograms showed that both departure and arrival delays were strongly right-skewed. Most flights were concentrated near zero, while a much smaller number formed long tails toward larger delays. The summary statistics showed that the maximum departure delay was 1,301 minutes and the maximum arrival delay was 1,272 minutes. The mean departure delay was 12.64 minutes, compared with a median of −2 minutes. Similarly, the mean arrival delay was 6.90 minutes, while the median was −5 minutes. The histograms excluded 8,255 missing departure-delay values and 9,430 missing arrival-delay values.
+
+#### Temperature and Moisture Variables
+
+```{r}
+ggplot(flights_weather, aes(x = temp)) +
+  geom_histogram(
+    bins = 30,
+    color = "black",
+    fill = "steelblue",
+    na.rm = TRUE
+  ) +
+  labs(
+    title = "Distribution of Temperature",
+    x = "Temperature (°F)",
+    y = "Number of Flights"
+  )
+```
+
+```{r}
+ggplot(flights_weather, aes(x = dewp)) +
+  geom_histogram(
+    bins = 30,
+    color = "black",
+    fill = "steelblue",
+    na.rm = TRUE
+  ) +
+  labs(
+    title = "Distribution of Dew Point",
+    x = "Dew Point (°F)",
+    y = "Number of Flights"
+  )
+```
+
+```{r}
+ggplot(flights_weather, aes(x = humid)) +
+  geom_histogram(
+    bins = 30,
+    color = "black",
+    fill = "steelblue",
+    na.rm = TRUE
+  ) +
+  labs(
+    title = "Distribution of Humidity",
+    x = "Humidity (%)",
+    y = "Number of Flights"
+  )
+```
+
+The summary statistics showed that temperature ranged from 10.94°F to 100.04°F, with a mean of 57.00°F and a median of 57.20°F. The histogram showed a broad distribution, with visible concentrations around the low 30s and upper 70s. Dew point ranged from −9.94°F to 78.08°F, and most of its observations appeared between approximately 20°F and 70°F. Humidity ranged from 12.74% to 100%, with the largest concentration around 40% to 60%. Each of these three variables had 1,573 missing observations.
+
+#### Wind Variables
+
+```{r}
+ggplot(flights_weather, aes(x = wind_dir)) +
+  geom_histogram(
+    bins = 30,
+    color = "black",
+    fill = "steelblue",
+    na.rm = TRUE
+  ) +
+  labs(
+    title = "Distribution of Wind Direction",
+    x = "Wind Direction (degrees)",
+    y = "Number of Flights"
+  )
+```
+
+```{r}
+ggplot(flights_weather, aes(x = wind_speed)) +
+  geom_histogram(
+    bins = 30,
+    color = "black",
+    fill = "steelblue",
+    na.rm = TRUE
+  ) +
+  labs(
+    title = "Distribution of Wind Speed",
+    x = "Wind Speed (mph)",
+    y = "Number of Flights"
+  )
+```
+
+```{r}
+ggplot(flights_weather, aes(x = wind_gust)) +
+  geom_histogram(
+    bins = 30,
+    color = "black",
+    fill = "steelblue",
+    na.rm = TRUE
+  ) +
+  labs(
+    title = "Distribution of Wind Gust",
+    x = "Wind Gust (mph)",
+    y = "Number of Flights"
+  )
+```
+
+The summary statistics showed that wind direction ranged from 0° to 360°. Its histogram was not evenly distributed, with the most prominent bars around 170° to 180° and 230° to 240°. The wind-speed histogram was right-skewed, with most observations below 20 mph, while the summary statistics showed a maximum of 42.58 mph. Wind gust was also right-skewed, with most recorded values between approximately 18 and 30 mph and a maximum of 66.75 mph. The summary also showed that `wind_gust` had 256,391 missing observations, so its histogram was based on a much smaller subset of the data.
+
+#### Other Weather Variables
+
+```{r}
+ggplot(flights_weather, aes(x = precip)) +
+  geom_histogram(
+    bins = 30,
+    color = "black",
+    fill = "steelblue",
+    na.rm = TRUE
+  ) +
+  labs(
+    title = "Distribution of Precipitation",
+    x = "Precipitation (inches)",
+    y = "Number of Flights"
+  )
+```
+
+```{r}
+ggplot(flights_weather, aes(x = pressure)) +
+  geom_histogram(
+    bins = 30,
+    color = "black",
+    fill = "steelblue",
+    na.rm = TRUE
+  ) +
+  labs(
+    title = "Distribution of Pressure",
+    x = "Pressure (millibars)",
+    y = "Number of Flights"
+  )
+```
+
+```{r}
+ggplot(flights_weather, aes(x = visib)) +
+  geom_histogram(
+    bins = 30,
+    color = "black",
+    fill = "steelblue",
+    na.rm = TRUE
+  ) +
+  labs(
+    title = "Distribution of Visibility",
+    x = "Visibility (miles)",
+    y = "Number of Flights"
+  )
+```
+
+The precipitation histogram showed that observations were heavily concentrated at zero, with a small number of positive values forming a long right tail. The `summary()` output showed that the first quartile, median, and third quartile were all 0 inches, while the maximum was 1.21 inches. Pressure had a roughly bell-shaped distribution centered near 1,018 millibars. Its mean was 1,017.8 millibars, and its median was 1,017.5 millibars. Visibility was strongly concentrated at 10 miles, and the `summary()` output showed that its first quartile, median, and third quartile were all 10 miles. Values below 10 miles appeared much less frequently in the histogram.
+
+## Q7. Average Departure Delays by Day, Airport, and Hour
+
+### 1. Average departure delay by day. Which day had the worst average length of delay for departures?
+
+```{r}
+daily_departure_delays <- flights_weather |>
+  group_by(year, month, day) |>
+  summarise(
+    avg_dep_delay = mean(dep_delay, na.rm = TRUE)
+  )
+
+daily_departure_delays
+```
+
+```{r}
+worst_delay_day <- daily_departure_delays |>
+  arrange(desc(avg_dep_delay)) |>
+  head(n = 1)
+
+worst_delay_day
+```
+
+I grouped the flights by `year`, `month`, and `day` so that each group represented one calendar day, and then calculated the mean departure delay after removing missing values. After sorting the daily averages from highest to lowest, March 8, 2013 had the worst average departure delay at 83.54 minutes.
+
+### 2. Average departure delay by day and origin. Which airport had the worst single day for delays and when was it?
+
+```{r}
+daily_origin_delays <- flights_weather |>
+  group_by(year, month, day, origin) |>
+  summarise(
+    avg_dep_delay = mean(dep_delay, na.rm = TRUE)
+  )
+
+head(daily_origin_delays)
+```
+
+```{r}
+worst_airport_day <- daily_origin_delays |>
+  arrange(desc(avg_dep_delay)) |>
+  head(n = 1)
+
+worst_airport_day
+```
+
+I then added `origin` to the grouping variables to calculate the daily average separately for each airport. The highest airport-specific daily average occurred at LGA on March 8, 2013, when the average departure delay was 105.72 minutes.
+
+### 3. Average departure delay by hour and origin. Which airport had the worst single hour for delays (and when was it)?
+
+```{r}
+hourly_origin_delays <- flights_weather |>
+  group_by(year, month, day, hour, origin) |>
+  summarise(
+    avg_dep_delay = mean(dep_delay, na.rm = TRUE)
+  )
+
+head(hourly_origin_delays)
+```
+
+```{r}
+worst_airport_hour <- hourly_origin_delays |>
+  arrange(desc(avg_dep_delay)) |>
+  head(n = 1)
+
+worst_airport_hour
+```
+
+I grouped the data by `year`, `month`, `day`, `hour`, and `origin` to calculate the average departure delay for each airport during each scheduled departure hour. The worst single hour occurred at LGA during the 21:00 hour on July 28, 2013, when the average departure delay was 279.67 minutes.
+
+## Q8. Spatial Distribution of Average Arrival Delay by Destination
+
+### 1. Calculate average arrival delay by destination
+
+```{r}
+destination_delays <- flights |>
+  group_by(dest) |>
+  summarise(
+    avg_arr_delay = mean(arr_delay, na.rm = TRUE)
+  )
+
+destination_delays
+```
+
+### 2. Add the average delay to the airports data
+
+```{r}
+airports_with_delays <- merge(
+  x = airports,
+  y = destination_delays,
+  by.x = "faa",
+  by.y = "dest",
+  all.x = TRUE,
+  all.y = FALSE
+)
+```
+
+```{r}
+airports_with_delays |>
+  filter(!is.na(avg_arr_delay)) |>
+  select(
+    faa,
+    name,
+    lat,
+    lon,
+    avg_arr_delay
+  ) |>
+  head()
+```
+
+### 3. Mapping
+
+```{r}
+world_map <- map_data("world")
+
+mapped_airports <- airports_with_delays |>
+  filter(!is.na(avg_arr_delay))
+```
+
+```{r}
+ggplot() +
+  geom_polygon(
+    data = world_map,
+    aes(
+      x = long,
+      y = lat,
+      group = group
+    ),
+    fill = "gray90",
+    color = "white"
+  ) +
+  geom_point(
+    data = mapped_airports,
+    aes(
+      x = lon,
+      y = lat,
+      color = avg_arr_delay
+    ),
+    size = 2,
+    alpha = 0.8
+  ) +
+  scale_color_gradient(
+    low = "blue",
+    high = "red"
+  ) +
+  coord_quickmap(
+    xlim = c(-170, -60),
+    ylim = c(15, 72)
+  ) +
+  labs(
+    title = "Average Arrival Delay by Destination",
+    x = "Longitude",
+    y = "Latitude",
+    color = "Average Arrival Delay (minutes)"
+  )
+```
+
+The color scale shows average arrival delays ranging from approximately −20 to 40 minutes. Redder points represent destinations with positive average arrival delays, meaning that flights arrived later than their scheduled arrival time on average. Bluer points represent destinations with negative average arrival delays, meaning that flights arrived earlier than scheduled on average.
+
+Most destinations are shown in purple or pink, corresponding to average arrival delays of approximately 0 to 20 minutes. A smaller number of destinations are shown in red or blue. Both red and blue points are more densely concentrated in the eastern United States, where most of the mapped destinations are located.
+
+## Q9. Create as many plots and summary statistics as needed to answer - Which weather phenomena have the most impact on flight delays?
+
+### 1. Precipitation and Departure Delay
+
+```{r}
+delay_weather <- flights_weather |>
+  filter(!is.na(dep_delay))
+```
+
+```{r}
+precip_delay_summary <- delay_weather |>
+  filter(!is.na(precip)) |>
+  mutate(
+    precipitation = case_when(
+      precip == 0 ~ "No precipitation",
+      precip > 0 ~ "Precipitation"
+    )
+  ) |>
+  group_by(precipitation) |>
+  summarise(
+    n_flights = n(),
+    mean_dep_delay = mean(dep_delay),
+    median_dep_delay = median(dep_delay)
+  )
+
+precip_delay_summary
+```
+
+```{r}
+ggplot(
+  precip_delay_summary,
+  aes(
+    x = precipitation,
+    y = mean_dep_delay,
+    fill = precipitation
+  )
+) +
+  geom_col() +
+  labs(
+    title = "Average Departure Delay by Precipitation",
+    x = "Precipitation Condition",
+    y = "Average Departure Delay (minutes)"
+  ) +
+  guides(fill = "none")
+```
+
+The summary table shows that 21,086 flights were scheduled during hours with precipitation, while 305,907 flights were scheduled during hours without precipitation. The mean departure delay was 30.9 minutes with precipitation and 11.4 minutes without precipitation. The median delays were 5 minutes and −2 minutes, respectively. Therefore, flights scheduled during precipitation had an average delay about 19.5 minutes longer. The table and barplot both show that precipitation was associated with longer departure delays.
+
+### 2. Visibility and Departure Delay
+
+```{r}
+visibility_delay_summary <- delay_weather |>
+  filter(!is.na(visib)) |>
+  group_by(visib) |>
+  summarise(
+    n_flights = n(),
+    mean_dep_delay = mean(dep_delay),
+    median_dep_delay = median(dep_delay)
+  ) |>
+  arrange(visib)
+
+visibility_delay_summary
+```
+
+```{r}
+visibility_delay_summary |>
+  filter(visib %in% c(0.12, 1.25, 10))
+```
+
+```{r}
+ggplot(
+  visibility_delay_summary,
+  aes(x = visib, y = mean_dep_delay)
+) +
+  geom_line() +
+  geom_point() +
+  labs(
+    title = "Average Departure Delay by Visibility",
+    x = "Visibility (miles)",
+    y = "Average Departure Delay (minutes)"
+  )
+```
+
+The plot showed a general downward pattern, with average departure delay tending to decrease as visibility increased. However, the line moved up and down considerably at the lower visibility levels. The summary table provided the exact values for these points. At 0.12 miles of visibility, 403 flights had a mean departure delay of 50.7 minutes. At 1.25 miles, 181 flights had a mean delay of 53.2 minutes.
+
+The table showed that 273,660 flights had 10 miles of visibility, with a mean delay of 11.0 minutes. The 10-mile visibility level had the lowest mean departure delay in the table. Because the low-visibility values were based on much smaller numbers of flights, I interpreted the individual fluctuations carefully. Taken together, the table and plot show that lower visibility was associated with longer average departure delays.
+
+### 3. Wind Speed and Departure Delay
+
+```{r}
+wind_speed_delay_summary <- delay_weather |>
+  filter(!is.na(wind_speed)) |>
+  group_by(wind_speed) |>
+  summarise(
+    n_flights = n(),
+    mean_dep_delay = mean(dep_delay),
+    median_dep_delay = median(dep_delay)
+  ) |>
+  arrange(wind_speed)
+
+wind_speed_delay_summary
+```
+
+```{r}
+ggplot(
+  wind_speed_delay_summary,
+  aes(x = wind_speed, y = mean_dep_delay)
+) +
+  geom_line() +
+  geom_point() +
+  labs(
+    title = "Average Departure Delay by Wind Speed",
+    x = "Wind Speed (mph)",
+    y = "Average Departure Delay (minutes)"
+  )
+```
+
+The summary table showed that the mean departure delay was 9.98 minutes at 0 mph and 14.0 minutes at 12.7 mph. The plot showed a general increase in average departure delay as wind speed increased. Between approximately 25 and 35 mph, several of the plotted mean delays were above 20 minutes. However, the line fluctuated sharply above 30 mph, showing that average delay did not increase steadily at every wind speed. Taken together, the table and plot suggest that higher wind speeds were generally associated with longer departure delays, although the pattern was inconsistent at the highest wind speeds.
+
+### 4. Temperature and Humidity
+
+### Temperature
+
+```{r}
+temperature_delay_summary <- delay_weather |>
+  filter(!is.na(temp)) |>
+  group_by(temp) |>
+  summarise(
+    n_flights = n(),
+    mean_dep_delay = mean(dep_delay),
+    median_dep_delay = median(dep_delay)
+  ) |>
+  arrange(temp)
+
+temperature_delay_summary
+```
+
+```{r}
+ggplot(
+  temperature_delay_summary,
+  aes(x = temp, y = mean_dep_delay)
+) +
+  geom_line() +
+  geom_point() +
+  labs(
+    title = "Average Departure Delay by Temperature",
+    x = "Temperature (°F)",
+    y = "Average Departure Delay (minutes)"
+  )
+```
+
+The temperature plot did not show a consistent increasing or decreasing pattern with departure delay. Most temperature-specific means between approximately 30°F and 70°F were between about 0 and 25 minutes. The plot included several much higher values, but some were based on very small groups. For example, at 13.1°F, the table showed a mean delay of 83.5 minutes and a median of 86 minutes, but only six flights were included. Because this estimate was based on such a small sample, it should not be given the same weight as estimates based on many flights. After considering both the plotted pattern and the group sizes, temperature did not show a consistent association with departure delay.
+
+### Humidity
+
+```{r}
+humidity_group_summary <- delay_weather |>
+  filter(!is.na(humid)) |>
+  mutate(
+    humidity_group = case_when(
+      humid < 25 ~ "0 to <25%",
+      humid < 50 ~ "25 to <50%",
+      humid < 75 ~ "50 to <75%",
+      humid <= 100 ~ "75 to 100%"
+    ),
+    humidity_group = factor(
+      humidity_group,
+      levels = c(
+        "0 to <25%",
+        "25 to <50%",
+        "50 to <75%",
+        "75 to 100%"
+      )
+    )
+  ) |>
+  group_by(humidity_group) |>
+  summarise(
+    n_flights = n(),
+    mean_dep_delay = mean(dep_delay),
+    median_dep_delay = median(dep_delay)
+  )
+
+humidity_group_summary
+```
+
+```{r}
+ggplot(
+  humidity_group_summary,
+  aes(
+    x = humidity_group,
+    y = mean_dep_delay,
+    fill = humidity_group
+  )
+) +
+  geom_col() +
+  labs(
+    title = "Average Departure Delay by Humidity",
+    x = "Humidity",
+    y = "Average Departure Delay (minutes)"
+  ) +
+  guides(fill = "none")
+```
+
+The humidity summary and barplot showed that the 75% to 100% humidity group had the highest mean departure delay. This group included 80,482 flights and had a mean delay of 20.6 minutes. In comparison, the 25% to less than 50% group included 115,025 flights and had the lowest mean delay at 8.58 minutes. However, the median delays were 0 minutes and −2 minutes, a difference of only 2 minutes. The difference between the means, about 12 minutes, was much larger than the difference between the medians. This is consistent with the right-skewed delay distribution shown earlier, where a small number of long delays pulled the mean upward. Therefore, the highest-humidity group had a higher mean departure delay, while the median delays in the two groups were relatively similar.
+
+### 5. Atmospheric Pressure and Departure Delay
+
+```{r}
+pressure_delay_summary <- delay_weather |>
+  filter(!is.na(pressure)) |>
+  group_by(pressure) |>
+  summarise(
+    n_flights = n(),
+    mean_dep_delay = mean(dep_delay),
+    median_dep_delay = median(dep_delay)
+  ) |>
+  arrange(pressure)
+
+pressure_delay_summary
+```
+
+```{r}
+ggplot(
+  pressure_delay_summary,
+  aes(
+    x = pressure,
+    y = mean_dep_delay
+  )
+) +
+  geom_point() +
+  geom_smooth(
+    method = "lm",
+    se = FALSE,
+    color = "red"
+  ) +
+  labs(
+    title = "Average Departure Delay by Atmospheric Pressure",
+    x = "Atmospheric Pressure (millibars)",
+    y = "Average Departure Delay (minutes)"
+  )
+```
+
+In the scatterplot, each point represented the mean departure delay at one pressure level. The red fitted line sloped downward, showing that the mean delays generally became shorter as atmospheric pressure increased. However, the points at the lower pressure levels were widely spread out. The summary table showed that some of these pressure levels included very few flights. For example, the lowest pressure shown was approximately 984 millibars and included only one flight, so its mean delay was not a stable estimate. Overall, the plot suggests that lower pressure was associated with longer average departure delays, but the pattern was not consistent across all pressure levels.
+
+### Conclusion
+
+Looking across the tables and plots, precipitation and reduced visibility showed the clearest relationships with longer departure delays. Flights scheduled during hours with precipitation had a mean delay of 30.9 minutes, compared with 11.4 minutes when no precipitation was recorded. A similar pattern appeared for visibility. The mean delay was 50.7 minutes at 0.12 miles and 53.2 minutes at 1.25 miles, but only 11.0 minutes at 10 miles. High humidity was also associated with a higher mean delay. The mean was 20.6 minutes in the 75% to 100% humidity group and 8.58 minutes in the 25% to less than 50% group, although their medians were relatively close at 0 and −2 minutes. Average delay generally increased with wind speed, but the values fluctuated at higher speeds. Temperature did not show a consistent pattern, while the fitted line for pressure sloped downward with considerable variation among the lower-pressure values. Overall, precipitation and reduced visibility had the clearest observed relationships with departure delays.
