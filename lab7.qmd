@@ -1,0 +1,247 @@
+---
+title: "lab7"
+author: "Ran Zhu"
+format: html
+editor: visual
+embed-resources: true
+fig-width: 6
+fig-height: 4
+theme: flatly
+---
+
+## Q1. How many Sars-Cov-2 papers?
+
+### 1.0. Downloading the website
+
+```{r}
+website <- xml2::read_html(
+  "https://pubmed.ncbi.nlm.nih.gov/?term=sars-cov-2"
+)
+```
+
+### 1.1. Locate the result count and convert it to text
+
+```{r}
+counts <- xml2::xml_find_first(
+  website,
+  "//div[contains(@class, 'results-amount')]//span[@class='value']"
+)
+counts <- as.character(counts)
+```
+
+### 1.2. Extract data and clean the outputs 
+
+```{r}
+totalcount <- stringr::str_extract(counts, "[0-9]+([,.][0-9]+)*")
+
+totalcount <- gsub("[,.]", "", totalcount)
+
+totalcount <- as.numeric(totalcount)
+print(totalcount)
+```
+
+## Q2. Get article abstracts and authors 
+
+```{r}
+# Read the abstract file
+abstracts <- readLines(
+  "~/Downloads/abstract-sars-cov-2-set.txt",
+  warn = FALSE
+)
+
+# Inspect the first 20 lines
+head(abstracts, 20)
+```
+
+```{r}
+# Combine all lines into one string
+abstracts <- paste(abstracts, collapse = "\n")
+
+# Split the text into individual articles
+abstracts <- unlist(strsplit(abstracts, split = "\n\n\n"))
+
+# Replace remaining line breaks with spaces
+abstracts <- gsub("\n", " ", abstracts)
+
+# Replace multiple spaces with a single space
+abstracts <- gsub(" +", " ", abstracts)
+```
+
+```{r}
+# Number of entries
+length(abstracts)
+
+# Inspect the first two entries
+abstracts[1:2]
+```
+
+## Q3. Distribution of universities 
+
+### 3.1. Extract institution names 
+
+```{r}
+library(stringr)
+
+# Combine patterns for the three institution formats
+institution_pattern <- paste(
+  c(
+    "[A-Z][a-zA-Z'-]*( [A-Z][a-zA-Z'-]*)* University",
+    "University of [A-Z][a-zA-Z'-]*( [A-Z][a-zA-Z'-]*)*",
+    "[A-Z][a-zA-Z'-]*( [A-Z][a-zA-Z'-]*)* Institute of [A-Z][a-zA-Z'-]*( [A-Z][a-zA-Z'-]*)*"
+  ),
+  collapse = "|"
+)
+
+# Extract all matching institutions from each article
+institution <- str_extract_all(
+  abstracts,
+  institution_pattern
+)
+```
+
+### 3.2. Inspect the extracted institutions 
+
+```{r}
+# Check institutions extracted from the first two articles
+institution[1:2]
+```
+
+### 3.3. Count and rank institutions
+
+```{r}
+# Combine the extracted names into one vector
+institution <- unlist(institution)
+
+# Count occurrences and sort from highest to lowest
+institution_counts <- sort(
+  table(institution),
+  decreasing = TRUE
+)
+
+# Show the 10 most common institutions
+top10 <- head(institution_counts, 10)
+top10
+```
+
+The 10 most common institution names in my results were:
+
+1.  University of California: 4,358
+
+2.  Stanford University: 1,171
+
+3.  University of Southern California: 786
+
+4.  University of California San Francisco: 701
+
+5.  University of California San Diego: 682
+
+6.  The University: 398
+
+7.  University of Washington: 338
+
+8.  Columbia University: 274
+
+9.  University of California Los Angeles: 254
+
+10. Johns Hopkins University: 246
+
+I noticed that “The University” appeared 398 times, but this does not tell us which university it is. To improve the results, I could remove matches that are only “The University”. I could also check a few extracted names against the original author affiliations. If a name is incomplete or includes extra words, I could adjust the regular expression to capture it more accurately.
+
+## Q4. Make a tidy dataset 
+
+### 4.1. 
+
+```{r}
+# read in text, each line is a separate character
+abstracts <- readLines(
+  "~/Downloads/abstract-sars-cov-2-set.txt",
+  warn = FALSE
+)
+
+# combine all text into one character
+abstracts <- paste(abstracts, collapse = "\n")
+
+# split the text whenever 3 new lines occur in a row
+abstracts <- unlist(strsplit(abstracts, split = "\n\n\n"))
+
+# Inspect the first article with line breaks displayed
+cat(abstracts[1])
+```
+
+### 4.2. Extract journal names
+
+```{r}
+# Extract the journal name before the publication year
+journal <- str_extract(
+  abstracts,
+  "(?<=\\. ).+?(?=\\. [0-9]{4})"
+)
+
+# Inspect the first five journal names
+journal[1:5]
+```
+
+### 4.3. Extract article titles 
+
+```{r}
+# Extract the second paragraph from each article
+titles <- sapply(abstracts, function(x) {
+  unlist(strsplit(x, split = "\n\n"))[2]
+}, USE.NAMES = FALSE)
+
+# Replace line breaks within titles with spaces
+titles <- gsub("\n", " ", titles)
+
+# Inspect the first five titles
+titles[1:5]
+```
+
+### 4.4. Extract article authors
+
+```{r}
+# Extract the third paragraph from each article
+authors <- sapply(abstracts, function(x) {
+  unlist(strsplit(x, split = "\n\n"))[3]
+}, USE.NAMES = FALSE)
+
+# Replace line breaks within author lists with spaces
+authors <- gsub("\n", " ", authors)
+
+# Inspect the first five author lists
+authors[1:5]
+```
+
+###  4.5. Extract author affiliations 
+
+```{r}
+# Extract the text after "Author information:"
+# Stop at the next blank line
+affiliations <- str_extract(
+  abstracts,
+  "(?<=Author information:\\n)[\\s\\S]+?(?=\\n\\n)"
+)
+
+# Replace line breaks within affiliations with spaces
+affiliations <- gsub("\n", " ", affiliations)
+
+# Replace multiple spaces with a single space
+affiliations <- gsub(" +", " ", affiliations)
+
+# Inspect the first five affiliations
+affiliations[1:5]
+```
+
+###  4.6. Create the tidy dataset
+
+```{r}
+# Combine the extracted information
+papers <- data.frame(
+  journal = journal,
+  title = titles,
+  authors = authors,
+  affiliations = affiliations
+)
+
+# Display the first five papers
+knitr::kable(papers[1:5, ])
+```
