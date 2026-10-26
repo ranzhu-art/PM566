@@ -1,0 +1,544 @@
+---
+title: "Adult Obesity and Differences Between U.S. States, 2011–2025"
+author: "RanZhu"
+format: html
+editor: visual
+embed-resources: true
+fig-width: 8
+fig-height: 5
+execute:
+  message: false
+  echo: true
+---
+
+```{r}
+#| include: false
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(forcats)
+library(knitr)
+library(maps)
+```
+
+## Introduction
+
+Adult obesity is an important public health issue in the United States. Its prevalence varies across states and population groups, and these differences may reflect a range of behavioral, socioeconomic, and environmental factors. Examining state-level patterns over time can help describe how obesity prevalence has changed and identify states with larger increases.
+
+For this project, I used the CDC dataset *Nutrition, Physical Activity, and Obesity — Behavioral Risk Factor Surveillance System (BRFSS)* (CDC, 2026). It contains estimates of adult weight status, diet, and physical activity across different years, locations, and population groups, including groups defined by income and education. These are summarized estimates rather than individual participant records. This analysis focuses on overall obesity prevalence among adults aged 18 years and older in the 50 U.S. states.
+
+My main question is how adult obesity prevalence and differences between states changed from 2011 to 2025. I looked at how the annual distribution of state estimates shifted over time, whether states were more spread apart in 2025 than in 2011, and whether the states with the largest gains were also the ones that ended up with the highest prevalence. To do this, I compared annual distributions and calculated the median, IQR, and standard deviation for the same 47 states at both endpoints. I also checked whether the ten states with the largest increases overlapped with the ten highest-prevalence states in 2025.
+
+## Data Preparation
+
+### 1. How and where the data were acquired
+
+I downloaded the dataset *Nutrition, Physical Activity, and Obesity — Behavioral Risk Factor Surveillance System* from the CDC data portal on October 17, 2026. I exported all available records as a CSV file using the website’s export function. The file was saved locally and imported into R using the `read_csv()` function from the `readr` package.
+
+```{r}
+cdc_raw <- read_csv(
+  "/Users/mac/Downloads/Nutrition,_Physical_Activity,_and_Obesity_-_Behavioral_Risk_Factor_Surveillance_System_20261017.csv"
+)
+```
+
+### 2. Cleaning and wrangling
+
+```{r}
+cdc <- unique(cdc_raw)
+
+n_duplicates <- nrow(cdc_raw) - nrow(cdc)
+
+obesity <- cdc |>
+  filter(
+    Question == "Percent of adults aged 18 years and older who have obesity",
+    StratificationCategory1 == "Total",
+    Stratification1 == "Total",
+    !(LocationAbbr %in% c("US", "DC", "GU", "PR", "VI")),
+    YearStart >= 2011,
+    YearStart <= 2025,
+    YearStart == YearEnd
+  ) |>
+  select(
+    year = YearStart,
+    state = LocationDesc,
+    state_abbr = LocationAbbr,
+    obesity_pct = Data_Value,
+    missing_note = Data_Value_Footnote
+  ) |>
+  arrange(state, year)
+
+available <- obesity |>
+  filter(!is.na(obesity_pct))
+
+missing_records <- obesity |>
+  filter(is.na(obesity_pct)) |>
+  arrange(year, state)
+```
+
+I first checked for exact duplicate rows and found none. I then filtered the data to keep overall adult obesity estimates for the 50 U.S. states from 2011 to 2025. I excluded demographic subgroups, national estimates, the District of Columbia, and U.S. territories. I also kept only records where the start and end years were the same. I selected the columns needed for the analysis, renamed them, and sorted the data by state and year.
+
+After filtering, there were 750 state-year records. To check for missing obesity estimates, I used `filter(is.na(obesity_pct))` and summarized the year, state, and missing-data explanation in a table. I found eight missing estimates, leaving 742 records with available values. According to the CDC notes, the missing estimates were due to insufficient sample size or unreported data. I kept these values as missing rather than replacing them with zero and created a separate dataset with nonmissing estimates for summary calculations.
+
+```{r}
+missing_table <- missing_records |>
+  select(
+    Year = year,
+    State = state,
+    Explanation = missing_note
+  )
+
+kable(
+  missing_table,
+  caption = "State-year records with missing obesity estimates."
+)
+```
+
+By checking the year and state columns in the missing records, I found that California, Mississippi, and Nevada had missing estimates in 2025. Therefore, the comparison between 2011 and 2025 included only the 47 states with estimates available in both years. Using the same states in both years allowed me to compare the distributions without changing which states were included. Annual summaries and distribution plots used the available estimates for each year, with the number of states reported in the annual summary table.
+
+For the map, I used state boundaries supplied by the `maps` package through `map_data("state")`. I converted state names to lowercase to match the map format, merged the boundaries with the calculated changes, and restored the polygon drawing order.
+
+## Exploratory Analysis
+
+### Variables and dataset characteristics
+
+Each observation represented one state in one year. The main variables were year (`year`), state (`state`), and adult obesity prevalence (`obesity_pct`). Year and obesity prevalence were stored as numeric variables. State was stored as text but represented a categorical variable. State abbreviations and missing-data notes were also retained.
+
+```{r}
+#| include: false
+
+n_duplicates
+nrow(obesity)
+nrow(available)
+nrow(missing_records)
+str(obesity)
+summary(obesity$obesity_pct)
+table(is.na(obesity$obesity_pct))
+```
+
+```{r}
+#| include: false
+n_distinct(obesity$state)
+any(duplicated(obesity[, c("state", "year")]))
+```
+
+The dataset covered exactly 50 states with no repeated state-year combinations, confirming that each row represented a unique state and year.
+
+```{r}
+variable_table <- data.frame(
+  Variable = c("year", "state / state_abbr", "obesity_pct", "missing_note"),
+  Type = c("Numeric", "Character", "Numeric", "Character"),
+  Meaning = c(
+    "Observation year",
+    "State name and abbreviation",
+    "Reported adult obesity prevalence (%)",
+    "Source explanation for unavailable values"
+  )
+)
+
+kable(variable_table, caption = "Variables retained for analysis.")
+```
+
+### Distribution of obesity prevalence
+
+```{r}
+obesity_summary <- data.frame(
+  Statistic = c("Minimum", "Median", "Mean", "Maximum"),
+  Prevalence = c(
+    min(available$obesity_pct),
+    median(available$obesity_pct),
+    mean(available$obesity_pct),
+    max(available$obesity_pct)
+  )
+)
+
+kable(
+  obesity_summary,
+  digits = 1,
+  col.names = c("Statistic", "Obesity prevalence (%)"),
+  caption = "Distribution of available state-year obesity estimates, 2011–2025."
+)
+```
+
+Across the 742 available state-year estimates, adult obesity prevalence ranged from 20.2% to 41.4%. The median was 31.1%, and the mean was 31.2%.
+
+```{r}
+#| label: fig-histogram
+#| fig-cap: "Distribution of adult obesity prevalence across 742 available state-year estimates, 2011–2025."
+
+ggplot(available, aes(x = obesity_pct)) +
+  geom_histogram(binwidth = 1, fill = "#4A90C4", color = "white") +
+  labs(
+    x = "Adult obesity prevalence (%)",
+    y = "Number of state-year estimates"
+  ) +
+  theme_bw(base_size = 12)
+```
+
+The histogram shows the highest concentration of state-year estimates around 30%–32%. The tallest bar is near 30% and contains approximately 70 estimates. Bar heights generally decrease toward both ends of the distribution, with some variation between neighboring bars. Relatively few estimates fall near 20% or above 40%. Since the histogram combines observations from 2011 to 2025, it does not show when the higher or lower estimates occurred. Thus, I examined annual boxplots to compare the distributions over time.
+
+### Annual distributions
+
+```{r}
+annual_summary <- summarize(
+  available,
+  n_states = n(),
+  median_pct = median(obesity_pct),
+  min_pct = min(obesity_pct),
+  max_pct = max(obesity_pct),
+  .by = year
+) |>
+  arrange(year)
+
+kable(
+  annual_summary,
+  digits = 1,
+  col.names = c("Year", "States with data", "Median (%)",
+                "Minimum (%)", "Maximum (%)"),
+  caption = "Annual distribution of adult obesity prevalence across states."
+)
+```
+
+The number of states with available estimates ranged from 47 to 50 per year. Median state obesity prevalence was 27.8% in 2011 and 33.7% in 2025. However, it did not increase every year. For example, the median decreased from 2017 to 2018 and from 2023 to 2025. Because the set of states with available estimates varied across years, these annual summaries should be interpreted with that change in coverage in mind.
+
+```{r}
+#| label: fig-annual-boxplots
+#| fig-cap: "Annual distributions of state adult obesity prevalence, 2011–2025."
+
+ggplot(available, aes(x = factor(year), y = obesity_pct)) +
+  geom_boxplot(fill = "#4A90C4", outlier.size = 1.5) +
+  labs(
+    x = "Year",
+    y = "Adult obesity prevalence (%)"
+  ) +
+  theme_bw(base_size = 12) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+The boxplots show a clear upward shift in the distribution of state obesity prevalence over the study period. The median lines and the lower and upper edges of the boxes are generally higher in later years, showing that the increase extended across the distribution. According to the annual summary table, the median rose from 27.8% in 2011 to 33.7% in 2025, a difference of 5.9 percentage points.
+
+The upward shift was not consistent every year. The median line is lower in 2018 than in 2017 and declines again from 2023 through 2025. The exact annual medians are reported in the table above.
+
+The whiskers also extend across a wide range in most years, and the vertical spans of several later-year boxes appear broader than those in the early years, suggesting that differences between states remained substantial and may have grown over time. Because annual coverage ranged from 47 to 50 states depending on data availability, I next compared the same 47 states at both endpoints to assess whether state-level differences widened.
+
+## Preliminary Results
+
+### Did differences between states widen or narrow?
+
+The annual boxplots described an upward shift in obesity prevalence. To examine whether the spread between states also changed, I compared the same 47 states in 2011 and 2025. I first matched the two years by state and calculated each state's change in percentage points.
+
+```{r}
+#| label: endpoint-data
+
+obesity_2011 <- obesity |>
+  filter(year == 2011) |>
+  select(state, state_abbr, y2011 = obesity_pct)
+
+obesity_2025 <- obesity |>
+  filter(year == 2025) |>
+  select(state, y2025 = obesity_pct)
+
+paired_states <- merge(
+  obesity_2011,
+  obesity_2025,
+  by = "state",
+  all.x = TRUE,
+  all.y = FALSE
+) |>
+  filter(!is.na(y2011), !is.na(y2025)) |>
+  mutate(change_pp = round(y2025 - y2011, 1)) |>
+  arrange(desc(change_pp), state)
+```
+
+I used the median to describe the center of each distribution, the interquartile range (IQR) to describe the spread of the middle 50% of state estimates, and the standard deviation (SD) to describe the overall spread. Here, a wider difference means a larger spread in percentage points, rather than a larger relative difference. These are unweighted summaries of state estimates, so they describe differences between states rather than national adult obesity prevalence. The SD measures variation across the state estimates; it is not a standard error or a measure of uncertainty for an individual state's estimate.
+
+```{r}
+#| label: tbl-endpoint-spread
+
+endpoint_long <- data.frame(
+  state = rep(paired_states$state, 2),
+  year = rep(c(2011, 2025), each = nrow(paired_states)),
+  obesity_pct = c(paired_states$y2011, paired_states$y2025)
+)
+
+endpoint_spread <- summarize(
+  endpoint_long,
+  n_states = n(),
+  median_pct = median(obesity_pct),
+  iqr_pp = IQR(obesity_pct),
+  sd_pp = sd(obesity_pct),
+  .by = year
+) |>
+  arrange(year)
+
+kable(
+  endpoint_spread,
+  digits = c(0, 0, 1, 2, 2),
+  col.names = c("Year", "States", "Median (%)", "IQR (pp)", "SD (pp)"),
+  caption = "Center and spread of adult obesity prevalence in the same 47 states in 2011 and 2025. IQR = interquartile range; SD = standard deviation; pp = percentage points."
+)
+```
+
+Among these 47 states, the median obesity prevalence increased from 27.8% in 2011 to 33.7% in 2025. The IQR increased from 4.05 to 5.10 percentage points, while the SD increased from 2.84 to 3.55 percentage points. Both measures therefore show a wider spread in 2025. Because the IQR describes the middle half of the estimates, the wider spread was also present within the central part of the distribution and was not limited to the minimum and maximum estimates. The endpoint comparison shows both a higher overall level and wider absolute differences between the 47 states in 2025.
+
+```{r}
+#| label: fig-endpoint-distributions
+#| fig-width: 7
+#| fig-height: 5
+#| fig-cap: "Adult obesity prevalence in the same 47 states in 2011 and 2025. Each box spans the middle 50% of state estimates, and its central line is the median. Both years include exactly the same states."
+
+ggplot(endpoint_long, aes(x = factor(year), y = obesity_pct)) +
+  geom_boxplot(fill = "#4A90C4", width = 0.5, outlier.size = 2) +
+  labs(
+    x = "Year",
+    y = "Adult obesity prevalence (%)"
+  ) +
+  theme_bw(base_size = 12)
+```
+
+The 2025 box sits higher on the prevalence axis and spans a larger interval than the 2011 box. This makes the two changes visible together: obesity prevalence was generally higher, and the middle half of state estimates was more spread out, but they don’t tell us what happened year by year in between.
+
+### States with the largest increases from 2011 to 2025
+
+The spread comparison describes the distribution across states. I next examined changes within individual states using the matched estimates prepared above. Each change was calculated by subtracting the 2011 estimate from the 2025 estimate. For the top-ten lists, ties in the change were ordered alphabetically by state name.
+
+```{r}
+#| include: false
+
+nrow(paired_states)
+sum(paired_states$change_pp > 0)
+summary(paired_states$change_pp)
+```
+
+```{r}
+#| include: false
+
+largest_change <- paired_states[1, ]
+
+smallest_change <- paired_states |>
+  arrange(change_pp, state)
+smallest_change <- smallest_change[1, ]
+```
+
+All 47 states included in this comparison had higher obesity prevalence in 2025 than in 2011. Increases ranged from 2.2 to 11.3 percentage points, with a median increase of 5.8 percentage points. This median summarizes changes within the same 47 states and differs from the 5.9-point difference between the annual medians described above.
+
+```{r}
+top10 <- paired_states[1:10, ]
+
+top10_table <- top10 |>
+  select(
+    State = state,
+    `2011 (%)` = y2011,
+    `2025 (%)` = y2025,
+    `Change (percentage points)` = change_pp
+  )
+
+kable(
+  top10_table,
+  digits = 1,
+  row.names = FALSE,
+  caption = "Ten largest increases among the 47 states with estimates in both 2011 and 2025."
+)
+```
+
+North Dakota had the largest increase among the 47 states, from 27.8% in 2011 to 39.1% in 2025, a rise of 11.3 percentage points. New Mexico had the next largest increase at 9.0 points, followed by Wisconsin at 8.9 points. North Dakota’s increase exceeded New Mexico’s by 2.3 percentage points, making it stand out at the top of the ranking.
+
+```{r}
+smallest10 <- paired_states |>
+  arrange(change_pp, state)
+smallest10 <- smallest10[1:10, ]
+
+smallest10_table <- smallest10 |>
+  select(
+    State = state,
+    `2011 (%)` = y2011,
+    `2025 (%)` = y2025,
+    `Change (percentage points)` = change_pp
+  )
+
+kable(
+  smallest10_table,
+  digits = 1,
+  row.names = FALSE,
+  caption = "Ten smallest increases among the 47 states with estimates in both 2011 and 2025."
+)
+```
+
+Louisiana had the smallest increase, from 33.4% in 2011 to 35.6% in 2025, a change of 2.2 percentage points. New Jersey and Florida had the next smallest increases, at 3.3 and 3.4 points. Louisiana’s relatively small increase did not mean low obesity prevalence in 2025: its estimate of 35.6% remained above the 2025 state median of 33.7%.
+
+```{r}
+#| fig-height: 11
+#| fig-width: 8
+#| fig-cap: "Change in adult obesity prevalence from 2011 to 2025 among 47 states with estimates in both years."
+#| label: fig-state-changes
+
+ggplot(paired_states,
+        aes(x = change_pp, y = fct_reorder(state, change_pp))) +
+  geom_col(fill = "#4A90C4") +
+  labs(
+    x = "Change in obesity prevalence (percentage points)",
+    y = NULL
+  ) +
+  theme_bw(base_size = 11) +
+  theme(axis.text.y = element_text(size = 9))
+```
+
+Every bar extends to the right of zero, showing that all 47 states had a higher estimate in 2025 than in 2011. The size of the increase varied substantially. North Dakota’s increase of 11.3 percentage points was almost twice the median increase of 5.8 points, while Louisiana’s increase was only 2.2 points. The difference between the largest and smallest increases was 9.1 percentage points. States near the middle of the ranking generally increased by about 5–7 points, showing that increases were widespread rather than limited to the states at the top.
+
+### Geographic distribution of increases
+
+```{r}
+#| label: fig-change-map
+#| fig-width: 10
+#| fig-height: 6
+#| fig-cap: "Change in adult obesity prevalence, 2011–2025, across the contiguous 48 states. Gray indicates unavailable endpoint comparisons. Alaska and Hawaii are included in the statistical analysis but are not displayed on this map."
+
+us_map <- map_data("state") |>
+  filter(region %in% tolower(state.name))
+
+map_values <- paired_states |>
+  mutate(region = tolower(state)) |>
+  select(region, change_pp)
+
+map_plot_data <- merge(
+  us_map,
+  map_values,
+  by = "region",
+  all.x = TRUE
+) |>
+  arrange(group, order)
+
+ggplot(
+  map_plot_data,
+  aes(x = long, y = lat, group = group)
+) +
+  geom_polygon(
+    aes(fill = change_pp),
+    color = "white",
+    linewidth = 0.3
+  ) +
+  scale_fill_gradient(
+    low = "#DEEBF7",
+    high = "#08519C",
+    limits = c(0, 12),
+    na.value = "grey80",
+    name = "Increase\n(percentage points)"
+  ) +
+  coord_fixed(1.3) +
+  labs(
+    caption = paste(
+      "Gray: California, Mississippi, and Nevada;",
+      "2025 estimates unavailable."
+    )
+  ) +
+  theme_void(base_size = 12) +
+  theme(legend.position = "right")
+```
+
+The map shows geographic variation in the increase in adult obesity prevalence from 2011 to 2025. The legend represents increases in percentage points, with darker blue indicating larger increases. The darkest area appears along the northern border in the central United States. Other relatively dark areas are visible in the upper Midwest, the Southwest, and parts of the South. Several northeastern states are lighter, indicating smaller increases. Most states fall between these extremes, appearing in intermediate shades of blue.
+
+The pattern also varies within regions. In the South, some inland states are darker than states along the Gulf Coast and Florida. Western states likewise show a mixture of lighter and darker shades. These contrasts indicate that states within the same broad region did not necessarily experience similar increases. California, Mississippi, and Nevada are gray because their 2025 estimates were unavailable; gray does not represent no change. Alaska and Hawaii are included in the 47-state analysis but are not displayed on this map.
+
+### Comparison of 2011 and 2025 prevalence
+
+```{r}
+#| label: fig-endpoint-comparison
+#| fig-width: 8
+#| fig-height: 7
+#| fig-cap: "Adult obesity prevalence in 2011 and 2025 among 47 states with estimates in both years. The dashed line indicates no change. Color represents the increase in percentage points."
+
+label_states <- paired_states |>
+  filter(
+    state %in% c(
+      "North Dakota",
+      "New Mexico",
+      "Wisconsin",
+      "Louisiana"
+    )
+  )
+
+ggplot(paired_states, aes(x = y2011, y = y2025)) +
+  geom_abline(
+    slope = 1,
+    intercept = 0,
+    linetype = "dashed",
+    color = "grey50"
+  ) +
+  geom_point(
+    aes(color = change_pp),
+    size = 3,
+    alpha = 0.9
+  ) +
+  geom_text(
+    data = label_states,
+    aes(label = state_abbr),
+    vjust = -0.8,
+    size = 3.5
+  ) +
+  scale_color_gradient(
+    low = "#DEEBF7",
+    high = "#08519C",
+    limits = c(0, 12),
+    name = "Increase\n(percentage points)"
+  ) +
+  coord_fixed(
+    ratio = 1,
+    xlim = c(20, 42),
+    ylim = c(20, 42)
+  ) +
+  labs(
+    x = "Adult obesity prevalence in 2011 (%)",
+    y = "Adult obesity prevalence in 2025 (%)",
+    caption = paste(
+      "ND: North Dakota; NM: New Mexico;",
+      "WI: Wisconsin; LA: Louisiana."
+    )
+  ) +
+  theme_bw(base_size = 12)
+```
+
+All 47 states lie above the diagonal dashed line, which represents no change between 2011 and 2025, showing that obesity prevalence was higher in 2025 than in 2011 for every state. States with larger increases lie farther above the line and have darker colors. North Dakota stands out as the darkest point and sits the farthest above the line, while Louisiana lies much closer to the line despite having a higher 2011 prevalence. Their positions illustrate how the size of an increase can change the ordering of states: Louisiana had a higher 2011 prevalence than North Dakota but a lower 2025 prevalence. The unlabeled point with the highest 2025 prevalence, at around 40% in 2025 and around 32% in 2011, lies closer to the line than North Dakota, showing that a high current prevalence and a large increase do not always go together.
+
+### Follow-up: Did the states with the largest increases also have the highest prevalence in 2025?
+
+The increase since 2011 and the prevalence in 2025 describe different aspects of the data. As a follow-up, I compared the ten states with the highest 2025 prevalence against the ten states with the largest increases.
+
+```{r}
+#| label: tbl-highest-2025
+
+highest2025 <- paired_states |>
+  arrange(desc(y2025), state)
+highest2025 <- highest2025[1:10, ]
+
+highest2025_table <- highest2025 |>
+  mutate(
+    top10_increase = ifelse(
+      state %in% top10$state, "Yes", "No"
+    )
+  ) |>
+  select(
+    State = state,
+    `2011 (%)` = y2011,
+    `2025 (%)` = y2025,
+    `Change (percentage points)` = change_pp,
+    `Among ten largest increases?` = top10_increase
+  )
+
+kable(
+  highest2025_table,
+  digits = 1,
+  row.names = FALSE,
+  caption = "States with the highest obesity prevalence in 2025 and their changes since 2011, among the 47 states with estimates in both years."
+)
+```
+
+Six states appeared in both top-ten lists, so the lists overlapped but were not identical. Alabama had the highest 2025 prevalence at 39.7%, but its increase of 7.7 percentage points was smaller than North Dakota’s 11.3 points. West Virginia had the seventh-highest 2025 prevalence at 37.4%, despite an increase of 5.0 points, below the median increase of 5.8 points. Conversely, New Mexico had the second-largest increase at 9.0 points but was not among the ten states with the highest 2025 prevalence. These comparisons show that a high current prevalence and a large increase over time do not always identify the same states.
+
+## Conclusion
+
+Adult obesity prevalence shifted upward across U.S. states from 2011 to 2025, although annual medians fluctuated. Among the 47 states with estimates in both endpoint years, every state had a higher estimate in 2025, with a median increase of 5.8 percentage points. Absolute differences between states also widened: the IQR increased from 4.05 to 5.10 percentage points and the SD increased from 2.84 to 3.55 percentage points, indicating greater variation in obesity prevalence across these 47 states in 2025. North Dakota had the largest increase at 11.3 points, followed by New Mexico and Wisconsin. Increases varied geographically, and the states with the largest increases were not always those with the highest prevalence in 2025. Examining both the level of prevalence in 2025 and the change since 2011 gives a fuller picture of how states differed.
+
+The endpoint findings apply to the 47 states with data in both years; California, Mississippi, and Nevada could not be included. Annual summaries also differed slightly in state coverage.
+
+## References
+
+Centers for Disease Control and Prevention. (2026, September 24). *Nutrition, physical activity, and obesity—Behavioral Risk Factor Surveillance System* \[Data set\]. <https://data.cdc.gov/d/hn4x-zwk7>
