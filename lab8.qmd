@@ -1,0 +1,214 @@
+---
+title: "lab8"
+author: "Ran Zhu"
+format: html
+editor: visual
+embed-resources: true
+fig-width: 6
+fig-height: 4
+theme: flatly
+---
+
+## **Problem 1: Vectorization**
+
+### 1. Generating a Poisson matrix
+
+```{r}
+fun1 <- function(n = 100, k = 4, lambda = 4) {
+  x <- NULL
+  
+  for (i in 1:n){
+    x <- rbind(x, rpois(k, lambda))    
+  }
+  
+  return(x)
+}
+
+fun1alt <- function(n = 100, k = 4, lambda = 4) {
+  x <- matrix(
+    rpois(n * k, lambda),
+    nrow = n,
+    ncol = k,
+    byrow = TRUE
+  )
+  
+  return(x)
+}
+```
+
+```{r}
+# Generate two matrices
+set.seed(123)
+a <- fun1()
+
+set.seed(456)
+b <- fun1alt()
+
+# Compare dimensions
+dim(a)
+dim(b)
+identical(dim(a), dim(b))
+
+# Compare means and variances
+rbind(
+  fun1 = c(
+    mean = mean(a),
+    variance = var(as.vector(a))
+  ),
+  fun1alt = c(
+    mean = mean(b),
+    variance = var(as.vector(b))
+  )
+)
+```
+
+Both matrices had 100 rows and 4 columns. The means were 4.0275 and 4.0050, and the variances were 3.9717 and 4.0451. These values were close to the expected Poisson mean and variance of 4.
+
+```{r}
+# Benchmarking
+microbenchmark::microbenchmark(
+  fun1(),
+  fun1alt()
+)
+```
+
+The median runtime decreased from 123.96 microseconds for `fun1()` to 13.37 microseconds for `fun1alt()`, about 9 times faster, because `fun1alt()` avoids growing the matrix with `rbind()` inside a loop.
+
+### 2. Finding column maxima
+
+```{r}
+# Data Generating Process
+set.seed(1234)
+x <- matrix(rnorm(1e4), nrow = 10)
+
+# Find each column's max value
+fun2 <- function(x) {
+  apply(x, 2, max)
+}
+
+fun2alt <- function(x) {
+  rows <- lapply(seq_len(nrow(x)), function(i) x[i, ])
+  do.call(pmax, rows)
+}
+```
+
+```{r}
+result1 <- fun2(x)
+result2 <- fun2alt(x)
+
+all.equal(result1, result2)
+```
+
+Both functions returned the same maximum for each of the 1,000 columns.
+
+```{r}
+# Benchmarking
+microbenchmark::microbenchmark(
+  fun2(x),
+  fun2alt(x)
+)
+```
+
+The median runtime decreased from 601.98 to 61.11 microseconds, so the alternative function was about 10 times faster.
+
+## **Problem 3: Parallelization**
+
+```{r}
+library(parallel)
+
+my_boot <- function(dat, stat, R, ncpus = 1L) {
+  
+  # Getting the random indices
+  n <- nrow(dat)
+  idx <- matrix(sample.int(n, n*R, TRUE), nrow = n, ncol = R)
+  
+  if (ncpus == 1L) {
+    
+    # Serial computation
+    ans <- lapply(seq_len(R), function(i) {
+      stat(dat[idx[, i], , drop = FALSE])
+    })
+    
+  } else {
+    
+    # Create workers
+    cl <- makeCluster(ncpus)
+    
+    # Stop workers when the function exits
+    on.exit(stopCluster(cl), add = TRUE)
+    
+    # Send the required objects to workers
+    clusterExport(
+      cl,
+      c("dat", "idx", "stat"),
+      envir = environment()
+    )
+    
+    # Parallel computation
+    ans <- parLapply(cl, seq_len(R), function(i) {
+      stat(dat[idx[, i], , drop = FALSE])
+    })
+  }
+  
+  # Converting the list into a matrix
+  ans <- do.call(rbind, ans)
+  
+  return(ans)
+}
+```
+
+Because the bootstrap indices are generated in the main session before being sent to the workers, `set.seed()` in the main session is enough for reproducibility, and `clusterSetRNGStream()` is not needed.
+
+```{r}
+# Bootstrap of an OLS
+my_stat <- function(d) coef(lm(y ~ x, data = d))
+
+# DATA SIM
+set.seed(1)
+n <- 500
+R <- 1e4
+
+x <- cbind(rnorm(n))
+y <- x*5 + rnorm(n)
+
+# Model-based confidence intervals
+ans0 <- confint(lm(y ~ x))
+
+# Bootstrap using two workers
+ans1 <- my_boot(
+  dat = data.frame(x, y),
+  stat = my_stat,
+  R = R,
+  ncpus = 2L
+)
+
+# Bootstrap confidence intervals
+t(apply(ans1, 2, quantile, c(.025, .975)))
+
+# Model-based confidence intervals
+ans0
+```
+
+The bootstrap confidence intervals were very close to the model-based intervals. For the slope, the bootstrap interval was (4.869, 5.044) and the model-based interval was (4.865, 5.049), and both contain the true value of 5.
+
+```{r}
+system.time(
+  my_boot(
+    dat = data.frame(x, y),
+    stat = my_stat,
+    R = 4000,
+    ncpus = 1L
+  )
+)
+
+system.time(
+  my_boot(
+    dat = data.frame(x, y),
+    stat = my_stat,
+    R = 4000,
+    ncpus = 2L
+  )
+)
+```
+
+Using two workers reduced the elapsed time from 1.031 seconds to 0.795 seconds. The speedup was less than 2x because starting the workers and sending data to them adds overhead.
